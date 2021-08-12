@@ -444,7 +444,25 @@ func cmdAdd(args *skel.CmdArgs, exec invoke.Exec, kubeClient k8s.KubeClient) (cn
 		}
 
 		if deletegateway {
-			tmpResult, err = netutils.DeleteDefaultGW(args, ifName, &tmpResult)
+
+			var v4, v6 bool
+			var ipFamily int
+			for _, gatewayIP := range delegate.GatewayRequest {
+				if gatewayIP.To4() != nil {
+					v4 = true
+				} else {
+					v6 = true
+				}
+			}
+			if v4 && v6 {
+				ipFamily = netlink.FAMILY_ALL
+			} else if v4 {
+				ipFamily = netlink.FAMILY_V4
+			} else {
+				ipFamily = netlink.FAMILY_V6
+			}
+
+			tmpResult, err = netutils.DeleteDefaultGW(args, ifName, &tmpResult, ipFamily)
 			if err != nil {
 				return nil, cmdErr(k8sArgs, "error deleting default gateway: %v", err)
 			}

@@ -477,7 +477,8 @@ func TryLoadPodDelegates(k8sArgs *types.K8sArgs, conf *types.NetConf, kubeClient
 	pod, err := kubeClient.GetPod(string(k8sArgs.K8S_POD_NAMESPACE), string(k8sArgs.K8S_POD_NAME))
 	if err != nil {
 		logging.Debugf("TryLoadPodDelegates: Err in loading K8s cluster default network from pod annotation: %v, use cached delegates", err)
-		return 0, nil, nil
+		//AKSHAY: we can't live without network on clean reboot of the node, we fail the ipam.
+		return 0, nil, logging.Errorf("TryLoadPodDelegates: Err in loading K8s cluster default network from pod annotation: %v, use cached delegates", err)
 	}
 
 	delegate, err := tryLoadK8sPodDefaultNetwork(kubeClient, pod, conf)
@@ -609,7 +610,11 @@ func GetNetworkDelegates(k8sclient KubeClient, pod *v1.Pod, networks []*types.Ne
 
 		delegate, updatedResourceMap, err := getKubernetesDelegate(k8sclient, net, confdir, pod, resourceMap)
 		if err != nil {
-			return nil, logging.Errorf("GetNetworkDelegates: failed getting the delegate: %v", err)
+			// AKSHAY
+			// if non default network does not exist, just ignore it
+			// return nil, logging.Errorf("GetNetworkDelegates: failed getting the delegate: %v", err)
+			logging.Debugf("GetNetworkDelegates: failed getting the delegate: %v continuing ", err)
+			continue
 		}
 		delegates = append(delegates, delegate)
 		resourceMap = updatedResourceMap

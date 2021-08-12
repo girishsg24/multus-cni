@@ -16,18 +16,19 @@
 package netutils
 
 import (
+	"net"
+	"strings"
+
 	"github.com/containernetworking/cni/pkg/skel"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/intel/multus-cni/logging"
 	"github.com/vishvananda/netlink"
-	"net"
-	"strings"
 )
 
 // DeleteDefaultGW removes the default gateway from marked interfaces.
-func DeleteDefaultGW(args *skel.CmdArgs, ifName string, res *cnitypes.Result) (*current.Result, error) {
+func DeleteDefaultGW(args *skel.CmdArgs, ifName string, res *cnitypes.Result, ipFamily int) (*current.Result, error) {
 	result, err := current.NewResultFromResult(*res)
 	if err != nil {
 		return nil, logging.Errorf("DeleteDefaultGW: Error creating new from current CNI result: %v", err)
@@ -38,13 +39,13 @@ func DeleteDefaultGW(args *skel.CmdArgs, ifName string, res *cnitypes.Result) (*
 		return nil, logging.Errorf("DeleteDefaultGW: Error getting namespace %v", err)
 	}
 	defer netns.Close()
-
 	err = netns.Do(func(_ ns.NetNS) error {
 		var err error
-		link, _ := netlink.LinkByName(ifName)
-		routes, _ := netlink.RouteList(link, netlink.FAMILY_ALL)
+		routes, _ := netlink.RouteList(nil, ipFamily)
+		logging.Debugf("routes found: %v", routes)
 		for _, nlroute := range routes {
 			if nlroute.Dst == nil {
+				logging.Debugf("deleting route: %v", nlroute)
 				err = netlink.RouteDel(&nlroute)
 			}
 		}
@@ -78,6 +79,9 @@ func SetDefaultGW(args *skel.CmdArgs, ifName string, gateways []net.IP, res *cni
 
 	var newResultDefaultRoutes []*cnitypes.Route
 
+	allGW := net.ParseIP("0.0.0.0")
+	allGW6 := net.ParseIP("::0")
+
 	// Do this within the net namespace.
 	err = netns.Do(func(_ ns.NetNS) error {
 		var err error
@@ -88,8 +92,13 @@ func SetDefaultGW(args *skel.CmdArgs, ifName string, gateways []net.IP, res *cni
 		// Cycle through all the desired gateways.
 		for _, gw := range gateways {
 
+			// AKSHAY:
+			if gw.Equal(allGW) || gw.Equal(allGW6) {
+				gw = result.IPs[0].Gateway
+			}
+
 			// Create a new route (note: dst is nil by default)
-			logging.Debugf("SetDefaultGW: Adding default route on %v (index: %v) to %v", ifName, link.Attrs().Index, gw)
+			logging.Debugf("SetDefault GW: Adding default route on %v (index: %v) to %v", ifName, link.Attrs().Index, gw)
 			newDefaultRoute := netlink.Route{
 				LinkIndex: link.Attrs().Index,
 				Gw:        gw,
